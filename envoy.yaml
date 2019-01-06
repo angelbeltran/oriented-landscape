@@ -1,0 +1,77 @@
+admin:
+  access_log_path: /tmp/admin_access.log
+  address:
+    socket_address: { address: 127.0.0.1, port_value: 9901 }
+
+static_resources:
+  listeners:
+  - name: singleton_listener
+    address:
+      socket_address: { address: 127.0.0.1, port_value: 8080 }
+    filter_chains:
+    - filters:
+      - name: envoy.http_connection_manager
+        config:
+          stat_prefix: ingress_http
+          codec_type: AUTO
+          route_config:
+            name: local_routes
+            virtual_hosts:
+            - name: game_service
+              domains: ["*"]
+              routes:
+              - match: 
+                  prefix: "/"
+                  grpc: {} # only grpc can match
+                route:
+                  cluster: ping_service
+                  max_grpc_timeout: 0s
+              - match:
+                  prefix: "/"
+                route:
+                  cluster: web_app
+              cors: # Remove if possible!
+                allow_origin:
+                - "*"
+                allow_methods: GET, PUT, DELETE, POST, OPTIONS
+                allow_headers: keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,custom-header-1,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,x-grpc-web,grpc-timeout
+                max_age: "1728000"
+                expose_headers: custom-header-1,grpc-status,grpc-message
+                enabled: true
+          http_filters:
+          - name: envoy.grpc_web
+          - name: envoy.cors
+          - name: envoy.router
+  clusters: # use logical_dns for cluster discovery type if moving to a kubernetes environment
+  - name: ping_service
+    connect_timeout: 0.25s
+    # The following field is deprecated in Envoy v2, superceded by load_assignment
+    # hosts: [{ socket_address: { address: localhost, port_value: 50051 }}]
+    load_assignment:
+      cluster_name: ping_service
+      endpoints:
+        - lb_endpoints:
+          - endpoint:
+              address:
+                socket_address:
+                  address: 127.0.0.1
+                  port_value: 50051
+              # health_check_config:
+              #   port_value: 1234
+    # health_checks: https://www.envoyproxy.io/docs/envoy/latest/api-v2/api/v2/core/health_check.proto#envoy-api-msg-core-healthcheck
+    http2_protocol_options: {} # must be provided (even if defaults are desired) to tell Envoy upstream supports http/2 
+  - name: web_app
+    connect_timeout: 0.25s
+    load_assignment:
+      cluster_name: web_app
+      endpoints:
+        - lb_endpoints:
+          - endpoint:
+              address:
+                socket_address:
+                  address: 127.0.0.1
+                  port_value: 3000
+              # health_check_config:
+              #   port_value: 1234
+    # health_checks: https://www.envoyproxy.io/docs/envoy/latest/api-v2/api/v2/core/health_check.proto#envoy-api-msg-core-healthcheck
+
